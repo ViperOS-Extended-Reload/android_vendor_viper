@@ -264,7 +264,7 @@ DEVICE_PACKAGE_OVERLAYS += vendor/viper/overlay/common
 # Versioning System
 # ViperOs version.
 VIPER_VERSION_CODENAME := Extended
-VIPER_VERSION_NUMBER := v3.1.2
+VIPER_VERSION_NUMBER := v3.1.3
 
 VIPER_DEVICE := $(VIPER_BUILD)
 
