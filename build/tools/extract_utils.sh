@@ -26,8 +26,7 @@ COMMON=-1
 ARCHES=
 FULLY_DEODEXED=-1
 
-TMPDIR="/tmp/extractfiles.$$"
-mkdir "$TMPDIR"
+TMPDIR=$(mktemp -d)
 
 #
 # cleanup
@@ -38,7 +37,7 @@ function cleanup() {
     rm -rf "${TMPDIR:?}"
 }
 
-trap cleanup EXIT INT TERM ERR
+trap cleanup 0
 
 #
 # setup_vendor
@@ -149,7 +148,12 @@ function target_args() {
 #
 function prefix_match() {
     local PREFIX="$1"
-    for FILE in "${PRODUCT_PACKAGES_LIST[@]}"; do
+    for LINE in "${PRODUCT_PACKAGES_LIST[@]}"; do
+        if ! [[ "$LINE" =~ "rootfs" ]]; then
+            local FILE=$(target_file "$LINE")
+        else
+            local FILE="$LINE"
+        fi
         if [[ "$FILE" =~ ^"$PREFIX" ]]; then
             printf '%s\n' "${FILE#$PREFIX}"
         fi
@@ -221,6 +225,7 @@ function write_packages() {
         ARGS=$(target_args "$P")
 
         BASENAME=$(basename "$FILE")
+        DIRNAME=$(dirname "$FILE")
         EXTENSION=${BASENAME##*.}
         PKGNAME=${BASENAME%.*}
 
@@ -300,6 +305,11 @@ function write_packages() {
         fi
         if [ ! -z "$EXTENSION" ]; then
             printf 'LOCAL_MODULE_SUFFIX := .%s\n' "$EXTENSION"
+        fi
+        if [ "$CLASS" = "SHARED_LIBRARIES" ] || [ "$CLASS" = "EXECUTABLES" ]; then
+            if [ "$DIRNAME" != "." ]; then
+                printf 'LOCAL_MODULE_RELATIVE_PATH := %s\n' "$DIRNAME"
+            fi
         fi
         if [ "$EXTRA" = "priv-app" ]; then
             printf 'LOCAL_PRIVILEGED_MODULE := true\n'
@@ -694,7 +704,12 @@ function oat2dex() {
         echo "Checking if system is odexed and locating boot.oats..."
         for ARCH in "arm64" "arm" "x86_64" "x86"; do
             mkdir -p "$TMPDIR/system/framework/$ARCH"
-            if get_file "system/framework/$ARCH/" "$TMPDIR/system/framework/" "$SRC"; then
+            if [ -d "$SRC/framework" ] && [ "$SRC" != "adb" ]; then
+                ARCHDIR="framework/$ARCH/"
+            else
+                ARCHDIR="system/framework/$ARCH/"
+            fi
+            if get_file "$ARCHDIR" "$TMPDIR/system/framework/" "$SRC"; then
                 ARCHES+="$ARCH "
             else
                 rmdir "$TMPDIR/system/framework/$ARCH"
@@ -796,7 +811,11 @@ function extract() {
         exit 1
     fi
 
-    parse_file_list "$1" "$3"
+    if [ -z "$3" ]; then
+        parse_file_list "$1"
+    else
+        parse_file_list "$1" "$3"
+    fi
 
     # Allow failing, so we can try $DEST and/or $FILE
     set +e
@@ -813,7 +832,7 @@ function extract() {
     fi
 
     if [ -f "$SRC" ] && [ "${SRC##*.}" == "zip" ]; then
-        DUMPDIR="$CM_ROOT"/system_dump
+        DUMPDIR="$TMPDIR"/system_dump
 
         # Check if we're working with the same zip that was passed last time.
         # If so, let's just use what's already extracted.
@@ -892,7 +911,33 @@ function extract() {
         fi
         local DEST="$OUTPUT_DIR/$FROM"
 
-        if [ "$SRC" = "adb" ]; then
+        # Check pinned files
+        local HASH="${HASHLIST[$i-1]}"
+        local KEEP=""
+        if [ "$DISABLE_PINNING" != "1" ] && [ ! -z "$HASH" ] && [ "$HASH" != "x" ]; then
+            if [ -f "$DEST" ]; then
+                local PINNED="$DEST"
+            else
+                local PINNED="$TMP_DIR/$FROM"
+            fi
+            if [ -f "$PINNED" ]; then
+                if [ "$(uname)" == "Darwin" ]; then
+                    local TMP_HASH=$(shasum "$PINNED" | awk '{print $1}' )
+                else
+                    local TMP_HASH=$(sha1sum "$PINNED" | awk '{print $1}' )
+                fi
+                if [ "$TMP_HASH" = "$HASH" ]; then
+                    KEEP="1"
+                    if [ ! -f "$DEST" ]; then
+                        cp -p "$PINNED" "$DEST"
+                    fi
+                fi
+            fi
+        fi
+
+        if [ "$KEEP" = "1" ]; then
+            printf '    + (keeping pinned file with hash %s)\n' "$HASH"
+        elif [ "$SRC" = "adb" ]; then
             # Try CM target first
             adb pull "/$TARGET" "$DEST"
             # if file does not exist try OEM target
@@ -922,38 +967,6 @@ function extract() {
                 fi
             elif [[ "$DEST" =~ .xml$ ]]; then
                 fix_xml "$DEST"
-            fi
-        fi
-
-        # Check pinned files
-        local HASH="${HASHLIST[$i-1]}"
-        if [ "$DISABLE_PINNING" != "1" ] && [ ! -z "$HASH" ] && [ "$HASH" != "x" ]; then
-            local KEEP=""
-            local TMP="$TMP_DIR/$FROM"
-            if [ -f "$TMP" ]; then
-                if [ ! -f "$DEST" ]; then
-                    KEEP="1"
-                else
-                    if [ "$(uname)" == "Darwin" ]; then
-                        local DEST_HASH=$(shasum "$DEST" | awk '{print $1}' )
-                    else
-                        local DEST_HASH=$(sha1sum "$DEST" | awk '{print $1}' )
-                    fi
-                    if [ "$DEST_HASH" != "$HASH" ]; then
-                        KEEP="1"
-                    fi
-                fi
-                if [ "$KEEP" = "1" ]; then
-                    if [ "$(uname)" == "Darwin" ]; then
-                        local TMP_HASH=$(shasum "$TMP" | awk '{print $1}' )
-                    else
-                        local TMP_HASH=$(sha1sum "$TMP" | awk '{print $1}' )
-                    fi
-                    if [ "$TMP_HASH" = "$HASH" ]; then
-                        printf '    + (keeping pinned file with hash %s)\n' "$HASH"
-                        cp -p "$TMP" "$DEST"
-                    fi
-                fi
             fi
         fi
 
