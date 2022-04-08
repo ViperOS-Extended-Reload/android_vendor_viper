@@ -16,8 +16,12 @@
 #
 
 define build-bootanimation
-    $(shell) vendor/viper/bootanimation/generate-bootanimation.sh \
+<<<<<<< HEAD
+    sh vendor/viper/bootanimation/generate-bootanimation.sh \
+=======
+    $(shell) vendor/cm/bootanimation/generate-bootanimation.sh \
     $(PRODUCT_OUT) \
+>>>>>>> 6e95711d7f5b9067cf5b25399223b04cf3920062
     $(TARGET_SCREEN_WIDTH) \
     $(TARGET_SCREEN_HEIGHT) \
     $(TARGET_BOOTANIMATION_HALF_RES)

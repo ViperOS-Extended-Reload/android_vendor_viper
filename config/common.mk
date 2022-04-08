@@ -96,7 +96,7 @@ endif
 
 # TWRP
 ifeq ($(WITH_TWRP),true)
-include vendor/cm/config/twrp.mk
+include vendor/viper/config/twrp.mk
 endif
 
 # Bootanimation
@@ -257,6 +257,12 @@ ifneq ($(TARGET_BUILD_VARIANT),user)
 PRODUCT_PACKAGES += \
     procmem \
     procrank
+
+# Conditionally build in su
+ifeq ($(WITH_SU),true)
+PRODUCT_PACKAGES += \
+    su
+endif
 endif
 
 DEVICE_PACKAGE_OVERLAYS += vendor/viper/overlay/common
